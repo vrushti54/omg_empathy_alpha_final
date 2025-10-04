@@ -12,3 +12,6 @@ results/
 *.pth
 *.ckpt
 *.h5
+# keep plots/diagrams even though parent dirs are ignored
+!speech/**/*.png
+!results/**/*.png
