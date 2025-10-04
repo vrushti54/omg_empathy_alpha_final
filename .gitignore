@@ -1,32 +1,14 @@
-# Git ignore file 
-__pycache__/ 
-*.pyc 
-*.pyo 
-*.pyd 
-.venv/ 
-venv/ 
-ENV/ 
-env/ 
-data/ 
-raw_face/ 
-fullbody/ 
-landmarks/ 
-multimodal/ 
-speech/ 
-transcript/ 
-*.wav 
-*.mp4 
-*.avi 
-*.zip 
-*.tar.gz 
-logs/ 
-*.log 
-last_error.txt 
-.ipynb_checkpoints/ 
-.DS_Store 
-Thumbs.db 
-results/ 
-*.pt 
-*.pth 
-*.ckpt 
-*.h5 
+# Ignore all large experiment outputs
+speech/
+results/
+
+# BUT keep plots (images)
+!speech/**/*.png
+!results/**/*.png
+
+# Still ignore huge arrays and models
+*.npy
+*.pt
+*.pth
+*.ckpt
+*.h5
