@@ -1,17 +1,23 @@
-# Ignore all large experiment outputs
-speech/
-results/
-
-# BUT keep plots (images)
-!speech/**/*.png
-!results/**/*.png
-
-# Still ignore huge arrays and models
+# Ignore virtual env and large files
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+data/
+speech/runs/features/
 *.npy
 *.pt
-*.pth
 *.ckpt
 *.h5
-# keep plots/diagrams even though parent dirs are ignored
+results/
+logs/
+raw_face/
+fullbody/
+landmarks/
+transcript/
+multimodal/
+# But keep image plots
 !speech/**/*.png
 !results/**/*.png
