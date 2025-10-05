@@ -1,23 +1,34 @@
-# Ignore virtual env and large files
+# Ignore virtual environments
 .venv/
 venv/
+ENV/
+env/
+
+# Ignore cache & compiled
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Ignore datasets & heavy files
 data/
-speech/runs/features/
-*.npy
-*.pt
-*.ckpt
-*.h5
-results/
-logs/
 raw_face/
 fullbody/
 landmarks/
 transcript/
 multimodal/
-# But keep image plots
+speech/runs/features/
+results/
+logs/
+*.npy
+*.pt
+*.ckpt
+*.h5
+*.wav
+*.mp4
+*.zip
+*.tar.gz
+
+# Allow important images
 !speech/**/*.png
 !results/**/*.png
