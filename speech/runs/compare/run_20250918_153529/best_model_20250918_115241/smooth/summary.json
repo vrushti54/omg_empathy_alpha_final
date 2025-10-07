@@ -1,9 +1,0 @@
-{
-  "model": "best_model_20250918_115241",
-  "variant": "smooth",
-  "n_files": 10,
-  "mean_CCC": 0.058645623481844725,
-  "min_CCC": -0.0032575387827582687,
-  "max_CCC": 0.12513560115280975,
-  "summary_csv": "speech\\runs\\compare\\run_20250918_153529\\best_model_20250918_115241\\smooth\\summary.csv"
-}

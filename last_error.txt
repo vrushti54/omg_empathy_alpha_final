@@ -1,4 +1,0 @@
-  File ".\speech\src\preprocessing_seq.py", line 74
-    print 'iiiiii'
-                 ^
-SyntaxError: Missing parentheses in call to 'print'. Did you mean print('iiiiii')?

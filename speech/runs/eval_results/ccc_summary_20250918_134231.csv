@@ -1,2 +1,0 @@
-n_files,mean_ccc,min_ccc,max_ccc,model_path
-10,0.08156238496303558,0.0019432101398706436,0.23087413609027863,C:\omg_empathy_alpha\speech\runs\checkpoints\best_model.h5

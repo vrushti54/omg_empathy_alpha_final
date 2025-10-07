@@ -1,9 +1,0 @@
-{
-  "model": "best_model_20250918_115241",
-  "variant": "ftrick",
-  "n_files": 10,
-  "mean_CCC": 0.0728957972014309,
-  "min_CCC": -0.0030344661364511347,
-  "max_CCC": 0.16816019250064848,
-  "summary_csv": "speech\\runs\\compare\\run_20250918_155108\\best_model_20250918_115241\\ftrick\\summary.csv"
-}

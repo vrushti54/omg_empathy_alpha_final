@@ -1,3 +1,0 @@
-Best: best_model_20250918_142610
-ftrick_smooth  |  Mean CCC = 0.2023
-Total variants compared: 12
