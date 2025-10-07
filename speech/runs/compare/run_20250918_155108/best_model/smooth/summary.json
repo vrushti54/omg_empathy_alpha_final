@@ -1,0 +1,9 @@
+{
+  "model": "best_model",
+  "variant": "smooth",
+  "n_files": 10,
+  "mean_CCC": 0.02388572668253983,
+  "min_CCC": 0.00017538803289212274,
+  "max_CCC": 0.054707832954393715,
+  "summary_csv": "speech\\runs\\compare\\run_20250918_155108\\best_model\\smooth\\summary.csv"
+}

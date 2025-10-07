@@ -1,0 +1,11 @@
+file,ccc,best_lag_frames,pred_csv
+Subject_10_Story_1,0.01739898084769782,-10,speech\runs\compare\run_20250918_153529\best_model\baseline\Subject_10_Story_1_pred.csv
+Subject_1_Story_1,0.024483256632721037,10,speech\runs\compare\run_20250918_153529\best_model\baseline\Subject_1_Story_1_pred.csv
+Subject_2_Story_1,0.005129007995844306,-7,speech\runs\compare\run_20250918_153529\best_model\baseline\Subject_2_Story_1_pred.csv
+Subject_3_Story_1,0.005516883967990902,-10,speech\runs\compare\run_20250918_153529\best_model\baseline\Subject_3_Story_1_pred.csv
+Subject_4_Story_1,0.027757602901049186,-9,speech\runs\compare\run_20250918_153529\best_model\baseline\Subject_4_Story_1_pred.csv
+Subject_5_Story_1,0.03793710073129338,-10,speech\runs\compare\run_20250918_153529\best_model\baseline\Subject_5_Story_1_pred.csv
+Subject_6_Story_1,0.03531278107561321,9,speech\runs\compare\run_20250918_153529\best_model\baseline\Subject_6_Story_1_pred.csv
+Subject_7_Story_1,0.003045208937047241,-1,speech\runs\compare\run_20250918_153529\best_model\baseline\Subject_7_Story_1_pred.csv
+Subject_8_Story_1,0.0476269273785841,-8,speech\runs\compare\run_20250918_153529\best_model\baseline\Subject_8_Story_1_pred.csv
+Subject_9_Story_1,0.0005570116336815501,8,speech\runs\compare\run_20250918_153529\best_model\baseline\Subject_9_Story_1_pred.csv

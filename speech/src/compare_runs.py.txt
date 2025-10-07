@@ -1,0 +1,241 @@
+# compare_runs.py
+# Evaluate all .h5 models in speech/runs/checkpoints across 4 variants:
+#   - baseline (no f_trick, no smoothing)
+#   - f_trick only
+#   - smoothing only
+#   - f_trick + smoothing
+# Saves per-file predictions & per-variant summaries, plus a master comparison CSV.
+
+import os, re, json, csv, configparser
+from glob import glob
+from datetime import datetime
+import numpy as np
+import pandas as pd
+
+from keras.models import load_model
+from scipy.signal import butter, filtfilt
+
+# project utils
+import utilities_func as uf
+import loadconfig
+import feat_analysis2 as fa
+from calculateCCC import ccc2
+
+# --------------------------
+# config
+# --------------------------
+cfg = configparser.ConfigParser()
+cfg.read(loadconfig.load())
+
+SR         = cfg.getint('sampling', 'sr')
+HOP        = cfg.getint('stft', 'hop_size')
+SEQ_LENGTH = cfg.getint('preprocessing', 'sequence_length')
+
+TRAIN_X    = cfg.get('model', 'training_predictors_load')
+AUDIO_DIR  = cfg.get('preprocessing', 'input_audio_folder_v')
+ANN_DIR    = cfg.get('preprocessing', 'input_annotation_folder_v')
+ANN_TRAIN  = cfg.get('preprocessing', 'input_annotation_folder_t')
+
+CKPT_DIR   = os.path.join("speech","runs","checkpoints")
+OUT_ROOT   = os.path.join("speech","runs","compare")
+os.makedirs(OUT_ROOT, exist_ok=True)
+
+FPS = 25.0
+FRAMES_PER_ANN = (SR / FPS) / float(HOP)
+
+# --------------------------
+# normalization (per-feature)
+# --------------------------
+feat_dir  = os.path.dirname(TRAIN_X)
+mean_path = os.path.join(feat_dir, 'train_mean.npy')
+std_path  = os.path.join(feat_dir, 'train_std.npy')
+if not (os.path.exists(mean_path) and os.path.exists(std_path)):
+    raise RuntimeError("Missing normalization stats: train_mean.npy / train_std.npy")
+
+MEAN = np.load(mean_path).astype('float32')
+STD  = np.load(std_path ).astype('float32') + 1e-8
+
+def zscore(feats: np.ndarray) -> np.ndarray:
+    if MEAN.ndim == 1 and MEAN.shape[0] == feats.shape[1]:
+        return (feats - MEAN) / STD
+    return (feats - MEAN) / STD
+
+# --------------------------
+# variants
+# --------------------------
+VARIANTS = [
+    {"name": "baseline",       "use_ftrick": False, "smooth": False, "smooth_cut": 0.01},
+    {"name": "ftrick",         "use_ftrick": True,  "smooth": False, "smooth_cut": 0.01},
+    {"name": "smooth",         "use_ftrick": False, "smooth": True,  "smooth_cut": 0.01},
+    {"name": "ftrick_smooth",  "use_ftrick": True,  "smooth": True,  "smooth_cut": 0.01},
+]
+
+# --------------------------
+# helpers
+# --------------------------
+def prefer_audio(stem: str):
+    p1 = os.path.join(AUDIO_DIR, stem + ".mp4.wav")
+    p2 = os.path.join(AUDIO_DIR, stem + ".wav")
+    if os.path.exists(p1): return p1
+    if os.path.exists(p2): return p2
+    return None
+
+def load_keras_model(path: str):
+    def batch_CCC(y_true, y_pred): return uf.CCC(y_true, y_pred)
+    return load_model(path, custom_objects={'CCC': uf.CCC, 'batch_CCC': batch_CCC})
+
+def predict_sequence(model, feats: np.ndarray, tgt_len: int) -> np.ndarray:
+    # sliding windows with SEQ_LENGTH used for training
+    preds = []
+    start = 0
+    while start < (tgt_len - SEQ_LENGTH):
+        s = int(start * FRAMES_PER_ANN)
+        e = int((start + SEQ_LENGTH) * FRAMES_PER_ANN)
+        win = feats[s:e].reshape(1, -1, feats.shape[1])
+        p = model.predict(win, verbose=0)[0]     # (SEQ_LENGTH,)
+        preds.extend(p.tolist())
+        start += SEQ_LENGTH
+
+    # tail to fill remaining frames
+    tail = feats[-int(SEQ_LENGTH*FRAMES_PER_ANN):].reshape(1, -1, feats.shape[1])
+    tail_p = model.predict(tail, verbose=0)[0]
+    remaining = tgt_len - len(preds)
+    if remaining > 0:
+        preds.extend(tail_p[-remaining:].tolist())
+
+    return np.asarray(preds, dtype='float32')
+
+def postprocess(preds: np.ndarray, use_ftrick: bool, smooth: bool, smooth_cut: float,
+                t_mu: float, t_sd: float) -> np.ndarray:
+    # map back to [-1, 1] from linear head trained on CCC loss
+    preds = (preds * 2.0) - 1.0
+    if use_ftrick:
+        preds = uf.f_trick(preds, t_mu, t_sd)
+    if smooth:
+        b, a = butter(3, smooth_cut, 'low')
+        preds = filtfilt(b, a, preds)
+    return preds
+
+def best_ccc_with_lag(preds, target, max_lag=10):
+    best_ccc, best_k = -1.0, 0
+    for k in range(-max_lag, max_lag+1):
+        if k < 0:
+            t = target[-k:]
+            p = preds[:len(t)]
+        elif k > 0:
+            t = target[:-k]
+            p = preds[k:len(target)]
+        else:
+            t = target
+            p = preds
+        c = float(ccc2(p, t))
+        if c > best_ccc:
+            best_ccc, best_k = c, k
+    return best_ccc, best_k
+
+# global target stats for f_trick
+T_MEAN, T_STD = uf.find_mean_std(ANN_TRAIN)
+
+# files to evaluate
+csv_files = sorted([f for f in os.listdir(ANN_DIR) if f.lower().endswith(".csv")])
+if not csv_files:
+    raise RuntimeError(f"No CSV annotations found in: {ANN_DIR}")
+
+# all checkpoints
+ckpts = sorted(glob(os.path.join(CKPT_DIR, "*.h5")))
+if not ckpts:
+    raise RuntimeError(f"No .h5 checkpoints found in: {CKPT_DIR}")
+
+# --------------------------
+# main loop
+# --------------------------
+from pandas.errors import EmptyDataError
+master_rows = []
+stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+RUN_DIR = os.path.join(OUT_ROOT, f"run_{stamp}")
+os.makedirs(RUN_DIR, exist_ok=True)
+
+print(f"[info] evaluating {len(ckpts)} checkpoint(s) × {len(VARIANTS)} variant(s)")
+print(f"[out]  {RUN_DIR}")
+
+for m_ix, model_path in enumerate(ckpts, 1):
+    model_name = os.path.splitext(os.path.basename(model_path))[0]
+    print(f"\n====== [{m_ix}/{len(ckpts)}] {model_name} ======")
+    model = load_keras_model(model_path)
+    print(f"[model] using SEQ_LENGTH={SEQ_LENGTH} (from config)")
+
+    for var in VARIANTS:
+        tag = var["name"]
+        VAR_DIR = os.path.join(RUN_DIR, model_name, tag)
+        os.makedirs(VAR_DIR, exist_ok=True)
+
+        rows = []
+        for i, csv_name in enumerate(csv_files, 1):
+            stem = os.path.splitext(csv_name)[0]
+            wav = prefer_audio(stem)
+            if wav is None:
+                print(f"{i:>3}/{len(csv_files)} {stem:>18s}  SKIP (no audio)")
+                continue
+
+            try:
+                # read audio -> feats
+                sr, x = uf.wavread(wav)
+                x = uf.preemphasis(x, sr)
+                feats = fa.extract_features(x, sr=sr, hop_samples=HOP)
+                feats = zscore(feats)
+
+                # read target
+                target = pd.read_csv(os.path.join(ANN_DIR, csv_name)).values.reshape(-1).astype('float32')
+
+                # predict & postprocess
+                raw = predict_sequence(model, feats, len(target))
+                pred = postprocess(
+                    raw,
+                    use_ftrick=var["use_ftrick"],
+                    smooth=var["smooth"],
+                    smooth_cut=var["smooth_cut"],
+                    t_mu=T_MEAN, t_sd=T_STD
+                )
+
+                ccc, lag = best_ccc_with_lag(pred, target, max_lag=10)
+
+                # save per-file predictions
+                out_csv = os.path.join(VAR_DIR, f"{stem}_pred.csv")
+                pd.DataFrame({"prediction": pred}).to_csv(out_csv, index=False)
+
+                rows.append({"file": stem, "ccc": ccc, "best_lag_frames": lag, "pred_csv": out_csv})
+                print(f"{i:>3}/{len(csv_files)} {stem:>18s}  {tag:>14s}  CCC={ccc:.4f} (lag {lag:+d})")
+
+            except Exception as e:
+                print(f"{i:>3}/{len(csv_files)} {stem:>18s}  {tag:>14s}  ERROR: {e}")
+
+        # variant summary
+        if rows:
+            df = pd.DataFrame(rows)
+            df_path = os.path.join(VAR_DIR, "summary.csv")
+            df.to_csv(df_path, index=False)
+            stats = {
+                "model": model_name,
+                "variant": tag,
+                "n_files": int(len(df)),
+                "mean_CCC": float(df.ccc.mean()),
+                "min_CCC": float(df.ccc.min()),
+                "max_CCC": float(df.ccc.max()),
+                "summary_csv": df_path
+            }
+            with open(os.path.join(VAR_DIR, "summary.json"), "w") as f:
+                json.dump(stats, f, indent=2)
+            master_rows.append(stats)
+        else:
+            master_rows.append({
+                "model": model_name, "variant": tag,
+                "n_files": 0, "mean_CCC": np.nan, "min_CCC": np.nan, "max_CCC": np.nan,
+                "summary_csv": ""
+            })
+
+# master comparison
+master_df = pd.DataFrame(master_rows)
+master_csv = os.path.join(RUN_DIR, "compare_models.csv")
+master_df.to_csv(master_csv, index=False)
+print("\n[done] Master comparison:", master_csv)
+print(master_df.sort_values(["model","variant"]))
