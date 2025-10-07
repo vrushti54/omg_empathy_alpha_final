@@ -1,0 +1,47 @@
+Model: "model"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ input_1 (InputLayer)        [(None, 250, 79)]         0         
+                                                                 
+ conv1d (Conv1D)             (None, 250, 96)           38016     
+                                                                 
+ batch_normalization (BatchN  (None, 250, 96)          384       
+ ormalization)                                                   
+                                                                 
+ dropout (Dropout)           (None, 250, 96)           0         
+                                                                 
+ conv1d_1 (Conv1D)           (None, 250, 96)           46176     
+                                                                 
+ batch_normalization_1 (Batc  (None, 250, 96)          384       
+ hNormalization)                                                 
+                                                                 
+ max_pooling1d (MaxPooling1D  (None, 125, 96)          0         
+ )                                                               
+                                                                 
+ bidirectional (Bidirectiona  (None, 125, 256)         230400    
+ l)                                                              
+                                                                 
+ bidirectional_1 (Bidirectio  (None, 125, 128)         164352    
+ nal)                                                            
+                                                                 
+ batch_normalization_2 (Batc  (None, 125, 128)         512       
+ hNormalization)                                                 
+                                                                 
+ time_distributed (TimeDistr  (None, 125, 32)          4128      
+ ibuted)                                                         
+                                                                 
+ dropout_1 (Dropout)         (None, 125, 32)           0         
+                                                                 
+ time_distributed_1 (TimeDis  (None, 125, 1)           33        
+ tributed)                                                       
+                                                                 
+ flatten (Flatten)           (None, 125)               0         
+                                                                 
+ dense_2 (Dense)             (None, 250)               31500     
+                                                                 
+=================================================================
+Total params: 515,885
+Trainable params: 515,245
+Non-trainable params: 640
+_________________________________________________________________

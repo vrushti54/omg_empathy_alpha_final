@@ -1,0 +1,129 @@
+# Export per-file predictions + a summary CSV for the current checkpoint.
+
+import os, json, csv, configparser
+import numpy as np
+import pandas as pd
+
+from keras.models import load_model
+from scipy.signal import filtfilt, butter
+
+import utilities_func as uf
+import loadconfig
+import feat_analysis2 as fa
+from calculateCCC import ccc2
+
+# ---------- config ----------
+cfg = configparser.ConfigParser()
+cfg.read(loadconfig.load())
+
+SR            = cfg.getint('sampling', 'sr')
+HOP           = cfg.getint('stft', 'hop_size')
+SEQ_LENGTH    = cfg.getint('preprocessing', 'sequence_length')
+
+MODEL         = cfg.get('model', 'load_model')
+TRAIN_X_PATH  = cfg.get('model', 'training_predictors_load')
+
+AUDIO_DIR     = cfg.get('preprocessing', 'input_audio_folder_v')   # use _v or _test per need
+ANN_DIR       = cfg.get('preprocessing', 'input_annotation_folder_v')
+ANN_TRAIN     = cfg.get('preprocessing', 'input_annotation_folder_t')
+
+OUT_DIR       = os.path.join("speech","runs","preds")
+os.makedirs(OUT_DIR, exist_ok=True)
+
+# ---------- normalization ----------
+feat_dir  = os.path.dirname(TRAIN_X_PATH)
+mean_path = os.path.join(feat_dir, 'train_mean.npy')
+std_path  = os.path.join(feat_dir, 'train_std.npy')
+
+mean = np.load(mean_path).astype('float32')
+std  = np.load(std_path ).astype('float32') + 1e-8
+
+def z(feats):
+    return (feats - mean) / std if mean.ndim==1 and mean.shape[0]==feats.shape[1] else (feats-mean)/std
+
+# ---------- model ----------
+def batch_CCC(y_true, y_pred): return uf.CCC(y_true, y_pred)
+model = load_model(MODEL, custom_objects={'CCC': uf.CCC, 'batch_CCC': batch_CCC})
+print("[model]", MODEL)
+
+# global stats for f_trick
+t_mu, t_sd = uf.find_mean_std(ANN_TRAIN)
+
+FPS = 25.0
+frames_per_annotation = (SR / FPS) / float(HOP)
+
+def prefer_audio(stem):
+    p1 = os.path.join(AUDIO_DIR, stem + ".mp4.wav")
+    p2 = os.path.join(AUDIO_DIR, stem + ".wav")
+    return p1 if os.path.exists(p1) else (p2 if os.path.exists(p2) else None)
+
+def predict_one(wav_path, tgt_len):
+    sr, x = uf.wavread(wav_path)
+    x = uf.preemphasis(x, sr)
+    feats = fa.extract_features(x, sr=sr, hop_samples=HOP)
+    feats = z(feats)
+
+    preds = []
+    start = 0
+    while start < (tgt_len - SEQ_LENGTH):
+        s = int(start * frames_per_annotation)
+        e = int((start + SEQ_LENGTH) * frames_per_annotation)
+        win = feats[s:e].reshape(1, -1, feats.shape[1])
+        p = model.predict(win, verbose=0)[0]
+        preds.extend(p.tolist())
+        start += SEQ_LENGTH
+
+    tail = feats[-int(SEQ_LENGTH*frames_per_annotation):].reshape(1, -1, feats.shape[1])
+    tail_p = model.predict(tail, verbose=0)[0]
+    need = tgt_len - len(preds)
+    if need > 0: preds.extend(tail_p[-need:].tolist())
+    preds = np.asarray(preds, dtype='float32')
+
+    # map to [-1,1], match train distribution, light smoothing
+    preds = (preds * 2.0) - 1.0
+    preds = uf.f_trick(preds, t_mu, t_sd)
+    b, a = butter(3, 0.01, 'low')
+    preds = filtfilt(b, a, preds)
+
+    return preds
+
+# ---------- iterate files ----------
+rows = []
+csv_files = sorted([f for f in os.listdir(ANN_DIR) if f.lower().endswith(".csv")])
+for i, csv_name in enumerate(csv_files, 1):
+    stem = os.path.splitext(csv_name)[0]
+    wav = prefer_audio(stem)
+    if wav is None:
+        print(f"{i:>3}/{len(csv_files)} {stem:>18s}  SKIP (no audio)")
+        continue
+
+    target = pd.read_csv(os.path.join(ANN_DIR, csv_name)).values.reshape(-1).astype('float32')
+    pred   = predict_one(wav, len(target))
+
+    # CCC and best lag (±10)
+    best_ccc, best_k = -1.0, 0
+    for k in range(-10, 11):
+        t = target[-k:] if k < 0 else (target[:-k] if k > 0 else target)
+        p = pred[:len(t)] if k < 0 else (pred[k:len(target)] if k > 0 else pred)
+        c = float(ccc2(p, t))
+        if c > best_ccc: best_ccc, best_k = c, k
+
+    # save per-file predictions
+    out_file = os.path.join(OUT_DIR, f"{stem}_pred.csv")
+    pd.DataFrame({"prediction": pred}).to_csv(out_file, index=False)
+
+    rows.append({"file": stem, "ccc": best_ccc, "best_lag_frames": best_k, "pred_csv": out_file})
+    print(f"{i:>3}/{len(csv_files)} {stem:>18s}  CCC={best_ccc:.4f}  (lag {best_k:+d})  -> {out_file}")
+
+# summary CSV + JSON
+if rows:
+    df = pd.DataFrame(rows)
+    df.to_csv(os.path.join(OUT_DIR, "summary.csv"), index=False)
+    with open(os.path.join(OUT_DIR, "summary.json"), "w") as f:
+        json.dump({"mean_CCC": float(df.ccc.mean()),
+                   "min_CCC": float(df.ccc.min()),
+                   "max_CCC": float(df.ccc.max()),
+                   "n_files": int(len(df))}, f, indent=2)
+    print("\n[done] Wrote:", os.path.join(OUT_DIR, "summary.csv"))
+else:
+    print("\n[warn] No files processed.")
